@@ -155,27 +155,41 @@ input {
 #board-list li { padding: 4px 0; }
 #board-list li b { color: var(--gold); float: right; font-variant-numeric: tabular-nums; }
 #touch-controls { display: none; }
-@media (pointer: coarse) {
-  #touch-controls {
-    display: flex;
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 120px;
-    z-index: 6;
-  }
-  #touch-left, #touch-right { flex: 1; }
-  #touch-launch {
-    width: 120px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--teal);
-    border: 1px solid var(--edge);
-    border-radius: 12px 12px 0 0;
-    background: rgba(16, 28, 34, .7);
-    font-size: 12px;
-    letter-spacing: .2em;
-  }
+@media (any-pointer: coarse) {
+  #touch-controls { display: block; }
+}
+#touch-controls.force { display: block; }
+#touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+#touch-left, #touch-right {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  pointer-events: auto;
+}
+#touch-left { left: 0; }
+#touch-right { right: 0; }
+#touch-launch {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 130px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--teal);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: rgba(16, 28, 34, .7);
+  font-size: 12px;
+  letter-spacing: .2em;
+  pointer-events: auto;
+  z-index: 7;
 }

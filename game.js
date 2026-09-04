@@ -4,7 +4,11 @@
 
 const cv = document.getElementById('table');
 const cx = cv.getContext('2d');
-const W = cv.width, H = cv.height;
+const W = 540, H = 960;
+// чёткая картинка на retina
+const dpr = Math.min(3, window.devicePixelRatio || 1);
+cv.width = W * dpr; cv.height = H * dpr;
+cx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
 const COL = {
   bg: '#0d171c', line: '#2a4652', teal: '#35d6c5', tealDim: '#1b7f78',
@@ -93,12 +97,12 @@ function makeFlipper(px, py, len, rest, raised, dir) {
 }
 const FL_SPEED = 30;
 const flippers = [
-  makeFlipper(172, 874, 98, 0.62, -0.46, 1),
-  makeFlipper(368, 874, 98, Math.PI - 0.62, Math.PI + 0.46, -1),
+  makeFlipper(172, 874, 90, 0.62, -0.46, 1),
+  makeFlipper(368, 874, 90, Math.PI - 0.62, Math.PI + 0.46, -1),
 ];
 
 /* ---------- шар и партия ---------- */
-const ball = { x: 0, y: 0, vx: 0, vy: 0, alive: false, inLane: false };
+const ball = { x: 0, y: 0, vx: 0, vy: 0, alive: false, exitedLane: false };
 let playing = false;          // партия идёт (шар куплен)
 let launching = false;        // шар в жёлобе, ждём запуск
 let launchPower = 0;
@@ -108,6 +112,8 @@ let startTime = 0;
 let tilt = false;
 let tiltMeter = 0;
 let stuckTime = 0;
+let playedTime = 0;   // игровое время партии — только пока шар в полёте
+let cradled = false;  // шар лежит на поднятом флиппере
 let msgTimer = null;
 
 /* ---------- звук ---------- */
@@ -115,6 +121,7 @@ let audio = null;
 function blip(freq, dur = 0.05, vol = 0.12, type = 'square') {
   try {
     audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
     const o = audio.createOscillator(), g = audio.createGain();
     o.type = type; o.frequency.value = freq;
     g.gain.setValueAtTime(vol, audio.currentTime);
@@ -154,17 +161,18 @@ function startGame() {
   targets.forEach(t => { t.up = true; });
   lanes.forEach(l => { l.lit = false; });
   ball.x = 493; ball.y = 886; ball.vx = 0; ball.vy = 0;
-  ball.alive = true; ball.inLane = true;
+  ball.alive = true; ball.exitedLane = false;
   playing = true; launching = true; launchPower = 0;
-  startTime = performance.now();
+  playedTime = 0; startTime = performance.now();
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   closeAll(); hud();
   blip(520, .08, .1, 'triangle');
 }
 
 function endGame() {
   playing = false; ball.alive = false;
-  const secs = Math.floor((performance.now() - startTime) / 1000);
-  const earned = Math.floor(score / 200) + Math.floor(secs / 10);
+  const secs = Math.floor(playedTime);
+  const earned = Math.floor(score / 200) + Math.min(30, Math.floor(secs / 10));
   tokens += earned; store.save('tokens', tokens);
   $('go-title').textContent = tilt ? 'TILT — шар потерян' : 'Шар потерян';
   $('go-score').textContent = score;
@@ -188,6 +196,8 @@ function renderShop() {
     const btn = document.createElement('button'); btn.textContent = 'Купить';
     btn.disabled = tokens < price;
     btn.onclick = () => {
+      tokens = store.load('tokens', tokens);
+      if (tokens < price) { renderShop(); hud(); return; }
       tokens -= price; owned.push(name);
       store.save('tokens', tokens); store.save('owned', owned);
       renderShop(); hud(); blip(760, .07, .1);
@@ -228,7 +238,7 @@ $('btn-save-score').onclick = () => {
 /* ---------- управление ---------- */
 const keys = { left: false, right: false };
 function nudge() {
-  if (!playing || tilt || !ball.alive) return;
+  if (!playing || tilt || !ball.alive || launching) return;
   ball.vx += (Math.random() - 0.5) * 260;
   ball.vy -= 200;
   tiltMeter += 1.1;
@@ -239,34 +249,53 @@ function nudge() {
     blip(90, .5, .18, 'sawtooth');
   }
 }
+function resetInputs() {
+  keys.left = false; keys.right = false;
+  holdingLaunch = false; launchPower = 0;
+}
+addEventListener('blur', resetInputs);
+document.addEventListener('visibilitychange', () => { if (document.hidden) resetInputs(); });
+
+function typingInField(e) {
+  const t = e.target;
+  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+}
 addEventListener('keydown', e => {
-  if (e.repeat) return;
+  if (e.repeat || typingInField(e)) return;
   if (e.code === 'ArrowLeft' || e.code === 'KeyZ') { keys.left = true; blip(340, .03, .06); }
   if (e.code === 'ArrowRight' || e.code === 'Slash') { keys.right = true; blip(360, .03, .06); }
   if (e.code === 'KeyT') nudge();
   if (e.code === 'Space') {
     e.preventDefault();
     if (launching) holdingLaunch = true;
-    else if (!playing && $('overlay').className === 'open') startGame();
+    else if (!playing && $('overlay').className === 'open') { startGame(); holdingLaunch = true; }
   }
 });
 addEventListener('keyup', e => {
+  if (typingInField(e)) return;
   if (e.code === 'ArrowLeft' || e.code === 'KeyZ') keys.left = false;
   if (e.code === 'ArrowRight' || e.code === 'Slash') keys.right = false;
   if (e.code === 'Space' && launching && holdingLaunch) fireBall();
 });
-function bindTouch(id, down, up) {
+function bindTouch(id, down, up, cancel) {
   const el = $(id);
   el.addEventListener('touchstart', e => { e.preventDefault(); down(); }, { passive: false });
   el.addEventListener('touchend', e => { e.preventDefault(); up && up(); }, { passive: false });
+  el.addEventListener('touchcancel', () => { (cancel || up) && (cancel || up)(); }, { passive: true });
 }
 bindTouch('touch-left', () => keys.left = true, () => keys.left = false);
 bindTouch('touch-right', () => keys.right = true, () => keys.right = false);
-bindTouch('touch-launch', () => { if (launching) holdingLaunch = true; }, () => { if (launching && holdingLaunch) fireBall(); });
+bindTouch('touch-launch',
+  () => { if (launching) holdingLaunch = true; else if (!playing && $('overlay').className === 'open') { startGame(); holdingLaunch = true; } },
+  () => { if (launching && holdingLaunch) fireBall(); },
+  () => { holdingLaunch = false; launchPower = 0; });
+// на десктопе с тачскрином медиазапрос может не сработать — показываем зоны по первому касанию
+document.addEventListener('touchstart', () => document.getElementById('touch-controls').classList.add('force'), { once: true, passive: true });
 
 function fireBall() {
   holdingLaunch = false;
   launching = false;
+  ball.vx = 0;
   ball.vy = -(1000 + 1300 * Math.min(1, launchPower)) * (0.97 + Math.random() * 0.06);
   launchPower = 0;
   blip(600, .12, .12, 'triangle');
@@ -312,6 +341,8 @@ function step(dt) {
     return;
   }
 
+  playedTime += dt;
+  if (ball.x < LANE_X - R) ball.exitedLane = true;
   ball.vy += GRAV * dt;
   const drag = 1 - 0.03 * dt;
   ball.vx *= drag; ball.vy *= drag;
@@ -325,8 +356,8 @@ function step(dt) {
   // стены
   for (const [x1, y1, x2, y2, rest] of walls) collideSegment(x1, y1, x2, y2, rest);
 
-  // односторонняя заслонка жёлоба: сверху вниз не пускаем обратно
-  if (ball.x > LANE_X - R && ball.y > 355 && ball.y < 385 && ball.vy > 0 && !launching) {
+  // односторонняя заслонка жёлоба: не пускаем обратно шар, уже вышедший в поле
+  if (ball.exitedLane && ball.x > LANE_X - R && ball.y > 355 && ball.y < 385 && ball.vy > 0 && !launching) {
     collideSegment(LANE_X, 370, 516, 370, 0.4);
   }
 
@@ -400,23 +431,24 @@ function step(dt) {
   }
 
   // флипперы
+  cradled = false;
   for (const f of flippers) {
     const tx = f.px + Math.cos(f.ang) * f.len;
     const ty = f.py + Math.sin(f.ang) * f.len;
-    // скорость поверхности в точке контакта — приблизительно в точке касания
-    const mx = (f.px + tx) / 2, my = (f.py + ty) / 2;
     const rx = ball.x - f.px, ry = ball.y - f.py;
     const svx = -f.vel * ry, svy = f.vel * rx;
-    collideSegment(f.px, f.py, tx, ty, 0.35, svx, svy, 8);
+    const hit = collideSegment(f.px, f.py, tx, ty, 0.35, svx, svy, 8);
+    if (hit && f.target === f.raised) cradled = true;
   }
 
   // шар скатился обратно в жёлоб — перезаряжаем пружину
   if (!launching && ball.x > LANE_X && ball.y > 875 && Math.abs(ball.vy) < 60) {
-    launching = true; launchPower = 0;
+    launching = true; launchPower = 0; ball.exitedLane = false;
   }
 
-  // страховка от застревания: почти неподвижный шар мягко подталкиваем
-  if (Math.hypot(ball.vx, ball.vy) < 6) {
+  // страховка от застревания: почти неподвижный шар мягко подталкиваем,
+  // но не тот, что честно пойман поднятым флиппером
+  if (Math.hypot(ball.vx, ball.vy) < 12 && !cradled) {
     stuckTime += dt;
     if (stuckTime > 2.5) {
       ball.vx += (270 - ball.x) > 0 ? 90 : -90;
@@ -538,7 +570,7 @@ let last = performance.now();
 function frame(now) {
   const dtRaw = Math.min(0.033, (now - last) / 1000);
   last = now;
-  const sub = 6;
+  const sub = Math.max(6, Math.ceil(Math.hypot(ball.vx, ball.vy) * dtRaw / 8));
   for (let i = 0; i < sub; i++) step(dtRaw / sub);
   drawTable();
   requestAnimationFrame(frame);
@@ -546,13 +578,15 @@ function frame(now) {
 hud();
 requestAnimationFrame(frame);
 
-// фоновая вкладка не качает requestAnimationFrame — физика едет на таймере
+// фоновая вкладка не качает requestAnimationFrame — физика едет на таймере;
+// число подшагов подбираем под скорость, чтобы шар не пролетал сквозь стены
 setInterval(() => {
   if (!document.hidden) return;
   const now = performance.now();
   const dt = Math.min(0.033, (now - last) / 1000);
   last = now;
-  for (let i = 0; i < 4; i++) step(dt / 4);
+  const n = Math.max(6, Math.ceil(Math.hypot(ball.vx, ball.vy) * dt / 8));
+  for (let i = 0; i < n; i++) step(dt / n);
 }, 16);
 
 // служебный доступ для отладки
