@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Пинбол Марни</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <div id="hud">
+    <div class="hud-block"><span class="hud-label">СЕРЕБРО</span><span id="hud-silver">10</span></div>
+    <div class="hud-block hud-score"><span class="hud-label">ОЧКИ</span><span id="hud-score">0</span></div>
+    <div class="hud-block"><span class="hud-label">ЖЕТОНЫ</span><span id="hud-tokens">0</span></div>
+  </div>
+  <canvas id="table" width="540" height="960"></canvas>
+  <div id="msg"></div>
+
+  <div id="overlay" class="open">
+    <div class="panel">
+      <h1>ПИНБОЛ МАРНИ</h1>
+      <p class="sub">Таверна Делесии · механика мастера Марни</p>
+      <p>Одна попытка — один шар. Запуск: держи <b>ПРОБЕЛ</b> и отпусти.
+         Флипперы: <b>←</b> / <b>→</b> (можно держать — шар ловится).
+         Толкнуть стол: <b>T</b> (три раза подряд — TILT!).</p>
+      <p class="sub">На телефоне: касания слева/справа — флипперы, кнопка — запуск.</p>
+      <div class="row">
+        <button id="btn-play">Играть — 1 серебро</button>
+        <button id="btn-shop" class="ghost">Лавка Джаспера</button>
+        <button id="btn-board" class="ghost">Рекорды</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="shop" class="closed">
+    <div class="panel">
+      <h1>Лавка Джаспера</h1>
+      <p class="sub">Жетоны Марни: <span id="shop-tokens">0</span></p>
+      <ul id="shop-list"></ul>
+      <p class="sub">Куплено: <span id="shop-owned">пока ничего</span></p>
+      <div class="row"><button id="btn-shop-close" class="ghost">Назад</button></div>
+    </div>
+  </div>
+
+  <div id="board" class="closed">
+    <div class="panel">
+      <h1>Табло рекордов</h1>
+      <ol id="board-list"></ol>
+      <div class="row"><button id="btn-board-close" class="ghost">Назад</button></div>
+    </div>
+  </div>
+
+  <div id="gameover" class="closed">
+    <div class="panel">
+      <h1 id="go-title">Шар потерян</h1>
+      <p>Очки: <b id="go-score">0</b> · Время: <b id="go-time">0с</b></p>
+      <p>Жетонов Марни получено: <b id="go-tokens">0</b></p>
+      <div id="go-name-row" class="row closed">
+        <input id="go-name" maxlength="12" placeholder="Имя для табло">
+        <button id="btn-save-score">В табло</button>
+      </div>
+      <div class="row">
+        <button id="btn-again">Ещё раз — 1 серебро</button>
+        <button id="btn-menu" class="ghost">В меню</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="touch-controls">
+    <div id="touch-left"></div>
+    <div id="touch-launch">ЗАПУСК</div>
+    <div id="touch-right"></div>
+  </div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
