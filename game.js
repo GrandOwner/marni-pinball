@@ -41,7 +41,7 @@ const SHOP = [
 
 /* ---------- геометрия стола ---------- */
 const R = 11;                       // радиус шара
-const GRAV = 1900;
+const GRAV = 2650;
 const LANE_X = 470;                 // внутренняя стенка жёлоба запуска
 
 function arcPoints(cxa, cya, r, a0, a1, n) {
@@ -95,7 +95,7 @@ const lanes = [ // огни Марни под куполом
 function makeFlipper(px, py, len, rest, raised, dir) {
   return { px, py, len, rest, raised, dir, ang: rest, target: rest, prev: rest, vel: 0 };
 }
-const FL_SPEED = 30;
+const FL_SPEED = 40;
 const flippers = [
   makeFlipper(172, 874, 90, 0.62, -0.46, 1),
   makeFlipper(368, 874, 90, Math.PI - 0.62, Math.PI + 0.46, -1),
@@ -114,6 +114,12 @@ let tiltMeter = 0;
 let stuckTime = 0;
 let playedTime = 0;   // игровое время партии — только пока шар в полёте
 let cradled = false;  // шар лежит на поднятом флиппере
+const popups = [];    // всплывающие очки
+const trail = [];     // хвост шара
+function addPopup(x, y, text, color) {
+  popups.push({ x, y, text, color: color || COL.gold, age: 0 });
+  if (popups.length > 12) popups.shift();
+}
 let msgTimer = null;
 
 /* ---------- звук ---------- */
@@ -296,7 +302,7 @@ function fireBall() {
   holdingLaunch = false;
   launching = false;
   ball.vx = 0;
-  ball.vy = -(1000 + 1300 * Math.min(1, launchPower)) * (0.97 + Math.random() * 0.06);
+  ball.vy = -(1250 + 1550 * Math.min(1, launchPower)) * (0.97 + Math.random() * 0.06);
   launchPower = 0;
   blip(600, .12, .12, 'triangle');
 }
@@ -347,7 +353,7 @@ function step(dt) {
   const drag = 1 - 0.03 * dt;
   ball.vx *= drag; ball.vy *= drag;
   const sp = Math.hypot(ball.vx, ball.vy);
-  if (sp > 2300) { ball.vx *= 2300 / sp; ball.vy *= 2300 / sp; }
+  if (sp > 2800) { ball.vx *= 2800 / sp; ball.vy *= 2800 / sp; }
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
 
@@ -374,8 +380,8 @@ function step(dt) {
       const my = (v[0][1] + v[1][1] + v[2][1]) / 3;
       let nx = ball.x - mx, ny = ball.y - my;
       const d = Math.hypot(nx, ny) || 1;
-      ball.vx += nx / d * 380; ball.vy += ny / d * 380 - 120;
-      s.flash = 1; addScore(50); blip(300, .05, .1);
+      ball.vx += nx / d * 520; ball.vy += ny / d * 520 - 150;
+      s.flash = 1; addScore(50); addPopup(ball.x, ball.y, '+50'); blip(300, .05, .1);
     }
   }
 
@@ -389,11 +395,12 @@ function step(dt) {
       ball.y = b.y + ny * (R + b.r);
       const vn = ball.vx * nx + ball.vy * ny;
       if (vn < 0) { ball.vx -= 2 * vn * nx; ball.vy -= 2 * vn * ny; }
-      const kick = b.pin ? 120 : 300;
+      const kick = b.pin ? 150 : 420;
       const j = (Math.random() - 0.5) * 0.25; // лёгкий развал угла, чтобы шар не зациклило
       const jx = nx * Math.cos(j) - ny * Math.sin(j), jy = nx * Math.sin(j) + ny * Math.cos(j);
       ball.vx += jx * kick; ball.vy += jy * kick;
-      b.flash = 1; addScore(b.pts); blip(500 + Math.random() * 200, .05, .12);
+      b.flash = 1; addScore(b.pts); addPopup(b.x, b.y - b.r - 8, '+' + b.pts, COL.teal);
+      blip(500 + Math.random() * 200, .05, .12);
     }
   }
 
@@ -403,7 +410,7 @@ function step(dt) {
     if (ball.x - R < t.x + t.w && ball.x + R > t.x && ball.y - R < t.y + t.h && ball.y + R > t.y) {
       t.up = false; t.flash = 1;
       ball.vx = Math.abs(ball.vx) * 0.7 + 160;
-      addScore(500); blip(680, .07, .12);
+      addScore(500); addPopup(t.x + 30, t.y, '+500'); blip(680, .07, .12);
       if (targets.every(q => !q.up)) {
         addScore(5000);
         flash('БАНК ЦЕЛЕЙ +5000', COL.teal);
@@ -420,7 +427,7 @@ function step(dt) {
     if (d < R + 16 && l.cd === 0) {
       l.cd = 1;
       if (!l.lit) {
-        l.lit = true; addScore(200); blip(590, .06, .1);
+        l.lit = true; addScore(200); addPopup(l.x, l.y + 26, '+200', COL.teal); blip(590, .06, .1);
         if (lanes.every(q => q.lit)) {
           addScore(1000);
           flash('ОГНИ МАРНИ +1000', COL.teal);
@@ -462,99 +469,209 @@ function step(dt) {
 }
 
 /* ---------- отрисовка ---------- */
+function roundGear(gx, gy, r, teeth, rot, alpha) {
+  cx.save();
+  cx.translate(gx, gy); cx.rotate(rot);
+  cx.globalAlpha = alpha;
+  cx.strokeStyle = COL.tealDim;
+  cx.lineWidth = 3;
+  cx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = (i / teeth) * Math.PI * 2, a1 = ((i + 0.5) / teeth) * Math.PI * 2;
+    const r1 = r, r2 = r * 0.86;
+    cx.arc(0, 0, r1, a0, a0 + Math.PI / teeth * 0.9);
+    cx.arc(0, 0, r2, a1, a1 + Math.PI / teeth * 0.9);
+  }
+  cx.stroke();
+  cx.beginPath(); cx.arc(0, 0, r * 0.35, 0, Math.PI * 2); cx.stroke();
+  cx.restore();
+}
+
 function drawTable() {
-  cx.fillStyle = COL.bg;
+  const t = performance.now() / 1000;
+
+  // фон: глубина + виньетка
+  const bg = cx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0c181e');
+  bg.addColorStop(0.55, '#0a1418');
+  bg.addColorStop(1, '#060c10');
+  cx.fillStyle = bg;
   cx.fillRect(0, 0, W, H);
 
-  // фоновые кольца механики Марни
-  cx.save();
-  cx.globalAlpha = 0.07;
-  cx.strokeStyle = COL.teal;
-  for (let r = 40; r < 240; r += 40) {
-    cx.beginPath(); cx.arc(270, 430, r, 0, Math.PI * 2); cx.stroke();
-  }
-  cx.restore();
+  // вращающиеся шестерни Марни в глубине
+  roundGear(270, 470, 160, 14, t * 0.05, 0.10);
+  roundGear(120, 620, 70, 10, -t * 0.09, 0.08);
+  roundGear(415, 560, 55, 9, t * 0.12, 0.08);
+  cx.globalAlpha = 1;
 
-  // стены
-  cx.strokeStyle = COL.line;
-  cx.lineWidth = 4;
+  // виньетка
+  const vg = cx.createRadialGradient(270, 430, 220, 270, 480, 620);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  cx.fillStyle = vg;
+  cx.fillRect(0, 0, W, H);
+
+  // борта: тёмная подложка + светящаяся кромка
   cx.lineCap = 'round';
+  cx.strokeStyle = '#1c333d';
+  cx.lineWidth = 10;
   cx.beginPath();
   for (const [x1, y1, x2, y2] of walls) { cx.moveTo(x1, y1); cx.lineTo(x2, y2); }
   cx.stroke();
+  cx.strokeStyle = COL.teal;
+  cx.lineWidth = 2;
+  cx.shadowColor = 'rgba(53,214,197,0.55)';
+  cx.shadowBlur = 8;
+  cx.beginPath();
+  for (const [x1, y1, x2, y2] of walls) { cx.moveTo(x1, y1); cx.lineTo(x2, y2); }
+  cx.stroke();
+  cx.shadowBlur = 0;
 
-  // слингшоты
+  // слингшоты: металлический клин с подсветкой при ударе
   for (const s of slings) {
-    cx.fillStyle = s.flash > 0 ? COL.gold : '#173038';
+    const g = cx.createLinearGradient(s.verts[0][0], s.verts[0][1], s.verts[2][0], s.verts[2][1]);
+    g.addColorStop(0, s.flash > 0 ? '#f0cc7a' : '#20404c');
+    g.addColorStop(1, s.flash > 0 ? COL.gold : '#12242c');
+    cx.fillStyle = g;
     cx.beginPath();
     cx.moveTo(...s.verts[0]); cx.lineTo(...s.verts[1]); cx.lineTo(...s.verts[2]);
     cx.closePath(); cx.fill();
-    cx.strokeStyle = COL.tealDim; cx.lineWidth = 2; cx.stroke();
+    cx.strokeStyle = s.flash > 0 ? COL.gold : COL.tealDim;
+    cx.lineWidth = 2.5; cx.stroke();
     s.flash = Math.max(0, s.flash - 0.08);
   }
 
-  // бамперы — ядра Марни
+  // бамперы: пульсирующее кольцо + металлическая шляпка
   for (const b of bumpers) {
-    const g = cx.createRadialGradient(b.x, b.y, 4, b.x, b.y, b.r + 6);
-    g.addColorStop(0, b.flash > 0 ? '#fff2cf' : COL.teal);
-    g.addColorStop(1, 'rgba(53,214,197,0)');
-    cx.fillStyle = g;
-    cx.beginPath(); cx.arc(b.x, b.y, b.r + 6, 0, Math.PI * 2); cx.fill();
-    cx.fillStyle = b.flash > 0 ? COL.gold : '#123138';
+    const pulse = b.pin ? 0 : 2 + Math.sin(t * 3 + b.x) * 1.5;
+    const glow = cx.createRadialGradient(b.x, b.y, b.r * 0.4, b.x, b.y, b.r + 14 + pulse);
+    glow.addColorStop(0, b.flash > 0 ? 'rgba(255,240,200,0.9)' : 'rgba(53,214,197,0.35)');
+    glow.addColorStop(1, 'rgba(53,214,197,0)');
+    cx.fillStyle = glow;
+    cx.beginPath(); cx.arc(b.x, b.y, b.r + 14 + pulse, 0, Math.PI * 2); cx.fill();
+
+    const cap = cx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.35, 2, b.x, b.y, b.r);
+    cap.addColorStop(0, b.flash > 0 ? '#fff4d6' : '#2c5a64');
+    cap.addColorStop(0.7, b.flash > 0 ? COL.gold : '#123138');
+    cap.addColorStop(1, '#0b1e24');
+    cx.fillStyle = cap;
     cx.beginPath(); cx.arc(b.x, b.y, b.r, 0, Math.PI * 2); cx.fill();
-    cx.strokeStyle = COL.teal; cx.lineWidth = 2; cx.stroke();
+    cx.strokeStyle = b.flash > 0 ? '#ffe9b0' : COL.teal;
+    cx.lineWidth = 2.5; cx.stroke();
+    cx.beginPath(); cx.arc(b.x, b.y, b.r * 0.55, 0, Math.PI * 2);
+    cx.strokeStyle = 'rgba(53,214,197,0.5)'; cx.lineWidth = 1.5; cx.stroke();
     if (!b.pin) {
-      cx.fillStyle = COL.text;
-      cx.font = 'bold 11px sans-serif'; cx.textAlign = 'center';
+      cx.fillStyle = b.flash > 0 ? '#14100a' : COL.text;
+      cx.font = 'bold 12px sans-serif'; cx.textAlign = 'center';
       cx.fillText(String(b.pts), b.x, b.y + 4);
     }
     b.flash = Math.max(0, b.flash - 0.06);
   }
 
-  // банк целей
-  for (const t of targets) {
-    cx.fillStyle = t.up ? COL.gold : '#1a2c33';
-    cx.fillRect(t.x, t.y, t.w, t.h);
-    t.flash = Math.max(0, t.flash - 0.08);
+  // банк целей: светодиодные пластины
+  for (const tg of targets) {
+    cx.save();
+    if (tg.up) {
+      cx.shadowColor = 'rgba(216,169,78,0.8)'; cx.shadowBlur = 10;
+      const g = cx.createLinearGradient(tg.x, tg.y, tg.x + tg.w, tg.y);
+      g.addColorStop(0, '#f2d488'); g.addColorStop(1, COL.gold);
+      cx.fillStyle = g;
+    } else cx.fillStyle = '#152730';
+    cx.fillRect(tg.x, tg.y, tg.w, tg.h);
+    cx.restore();
+    cx.strokeStyle = tg.up ? '#8a6b2f' : '#0e1c22';
+    cx.lineWidth = 1.5;
+    cx.strokeRect(tg.x, tg.y, tg.w, tg.h);
   }
 
-  // огни Марни
+  // огни Марни: линзы
   for (const l of lanes) {
-    cx.beginPath(); cx.arc(l.x, l.y, 14, 0, Math.PI * 2);
-    cx.fillStyle = l.lit ? COL.teal : '#12262c';
-    cx.fill();
-    cx.strokeStyle = COL.tealDim; cx.lineWidth = 2; cx.stroke();
+    const lg = cx.createRadialGradient(l.x, l.y, 2, l.x, l.y, 16);
+    if (l.lit) { lg.addColorStop(0, '#d8fff8'); lg.addColorStop(0.5, COL.teal); lg.addColorStop(1, 'rgba(53,214,197,0.15)'); }
+    else { lg.addColorStop(0, '#1b3840'); lg.addColorStop(1, '#0f2026'); }
+    cx.fillStyle = lg;
+    cx.beginPath(); cx.arc(l.x, l.y, 14, 0, Math.PI * 2); cx.fill();
+    cx.strokeStyle = l.lit ? COL.teal : '#22434e';
+    cx.lineWidth = 2; cx.stroke();
   }
 
-  // жёлоб: пружина
+  // пружина в жёлобе
   if (launching) {
-    const h = 60 * launchPower;
-    cx.fillStyle = COL.gold;
-    cx.fillRect(482, 896 - 4, 24, 6 + h * 0);
-    cx.fillStyle = COL.danger;
-    cx.fillRect(482, 900, 24, -h);
+    const comp = 54 * launchPower;
+    const top = 838 + comp;
+    cx.strokeStyle = COL.danger;
+    cx.lineWidth = 3.2;
+    cx.beginPath();
+    const coils = 7;
+    for (let i = 0; i <= coils * 2; i++) {
+      const yy = top + (896 - top) * i / (coils * 2);
+      const xx = 493 + (i % 2 ? 11 : -11);
+      i === 0 ? cx.moveTo(493, yy) : cx.lineTo(xx, yy);
+    }
+    cx.stroke();
+    cx.fillStyle = '#c9d6d3';
+    cx.fillRect(480, top - 7, 26, 7);
   }
 
-  // флипперы
+  // флипперы: клин с втулкой
   for (const f of flippers) {
-    const tx = f.px + Math.cos(f.ang) * f.len;
-    const ty = f.py + Math.sin(f.ang) * f.len;
-    cx.strokeStyle = COL.gold;
-    cx.lineWidth = 16;
-    cx.beginPath(); cx.moveTo(f.px, f.py); cx.lineTo(tx, ty); cx.stroke();
-    cx.strokeStyle = COL.goldDim;
-    cx.lineWidth = 8;
-    cx.beginPath(); cx.moveTo(f.px, f.py); cx.lineTo(tx, ty); cx.stroke();
+    const txp = f.px + Math.cos(f.ang) * f.len;
+    const typ = f.py + Math.sin(f.ang) * f.len;
+    const px = -Math.sin(f.ang), py = Math.cos(f.ang);
+    const wBase = 11, wTip = 5;
+    const grad = cx.createLinearGradient(f.px, f.py - 14, f.px, f.py + 14);
+    grad.addColorStop(0, '#f2d488'); grad.addColorStop(0.5, COL.gold); grad.addColorStop(1, '#7a5c26');
+    cx.fillStyle = grad;
+    cx.beginPath();
+    cx.moveTo(f.px + px * wBase, f.py + py * wBase);
+    cx.lineTo(txp + px * wTip, typ + py * wTip);
+    cx.arc(txp, typ, wTip, Math.atan2(py, px), Math.atan2(-py, -px));
+    cx.lineTo(f.px - px * wBase, f.py - py * wBase);
+    cx.arc(f.px, f.py, wBase, Math.atan2(-py, -px), Math.atan2(py, px));
+    cx.closePath(); cx.fill();
+    cx.strokeStyle = '#5c451c'; cx.lineWidth = 1.5; cx.stroke();
+    cx.fillStyle = '#2a2013';
+    cx.beginPath(); cx.arc(f.px, f.py, 5, 0, Math.PI * 2); cx.fill();
   }
+
+  // хвост шара
+  if (ball.alive && !launching) {
+    trail.push([ball.x, ball.y]);
+    if (trail.length > 8) trail.shift();
+    for (let i = 0; i < trail.length; i++) {
+      cx.globalAlpha = (i / trail.length) * 0.25;
+      cx.fillStyle = COL.teal;
+      cx.beginPath(); cx.arc(trail[i][0], trail[i][1], R * (0.4 + i / trail.length * 0.5), 0, Math.PI * 2); cx.fill();
+    }
+    cx.globalAlpha = 1;
+  } else trail.length = 0;
 
   // шар
   if (ball.alive) {
-    const g = cx.createRadialGradient(ball.x - 4, ball.y - 4, 2, ball.x, ball.y, R);
+    cx.fillStyle = 'rgba(0,0,0,0.4)';
+    cx.beginPath(); cx.ellipse(ball.x + 3, ball.y + 5, R * 0.9, R * 0.55, 0, 0, Math.PI * 2); cx.fill();
+    const g = cx.createRadialGradient(ball.x - 4, ball.y - 4, 1.5, ball.x, ball.y, R);
     g.addColorStop(0, '#ffffff');
-    g.addColorStop(1, '#8fa8b5');
+    g.addColorStop(0.5, '#d9e6ea');
+    g.addColorStop(1, '#79929e');
     cx.fillStyle = g;
     cx.beginPath(); cx.arc(ball.x, ball.y, R, 0, Math.PI * 2); cx.fill();
+    cx.fillStyle = 'rgba(255,255,255,0.85)';
+    cx.beginPath(); cx.arc(ball.x - 3.5, ball.y - 3.5, 2.2, 0, Math.PI * 2); cx.fill();
   }
+
+  // всплывающие очки
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
+    p.age += 1 / 60;
+    if (p.age > 0.9) { popups.splice(i, 1); continue; }
+    cx.globalAlpha = 1 - p.age / 0.9;
+    cx.fillStyle = p.color;
+    cx.font = 'bold 15px sans-serif';
+    cx.textAlign = 'center';
+    cx.fillText(p.text, p.x, p.y - p.age * 40);
+  }
+  cx.globalAlpha = 1;
 
   // индикатор наклона
   if (tiltMeter > 0.2 && !tilt) {
