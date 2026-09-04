@@ -73,11 +73,13 @@ const slings = [
 ];
 
 const bumpers = [
-  { x: 186, y: 314, r: 26, flash: 0, pts: 100 },
-  { x: 272, y: 238, r: 26, flash: 0, pts: 100 },
-  { x: 358, y: 314, r: 26, flash: 0, pts: 100 },
-  { x: 272, y: 560, r: 13, flash: 0, pts: 25, pin: true },
+  { x: 186, y: 314, r: 26, flash: 0, pts: 100, hue: '#7ee787' },
+  { x: 272, y: 238, r: 26, flash: 0, pts: 100, hue: '#e8c766' },
+  { x: 358, y: 314, r: 26, flash: 0, pts: 100, hue: '#f0a05a' },
 ];
+
+// центральный водоворот: затягивает и выплёвывает шар
+const VORTEX = { x: 270, y: 545, r: 62, core: 18, cd: 0, spin: 0, flash: 0 };
 
 const targets = [ // банки целей на левой стене
   { x: 66, y: 452, w: 12, h: 44, up: true, flash: 0 },
@@ -437,6 +439,27 @@ function step(dt) {
     }
   }
 
+  // водоворот
+  VORTEX.cd = Math.max(0, VORTEX.cd - dt);
+  {
+    let nx = ball.x - VORTEX.x, ny = ball.y - VORTEX.y;
+    const d = Math.hypot(nx, ny);
+    if (d < VORTEX.r && VORTEX.cd <= 0) {
+      const pull = 1400 * (1 - d / VORTEX.r);
+      ball.vx -= nx / (d || 1) * pull * dt;
+      ball.vy -= ny / (d || 1) * pull * dt;
+      if (d < VORTEX.core) {
+        addScore(1500); addPopup(VORTEX.x, VORTEX.y - VORTEX.r - 10, '+1500', '#ff6b5e');
+        flash('ВОДОВОРОТ +1500', '#ff6b5e');
+        VORTEX.cd = 2.2; VORTEX.flash = 1;
+        blip(210, .3, .16, 'sawtooth'); blip(840, .2, .1, 'triangle');
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.2;
+        ball.x = VORTEX.x; ball.y = VORTEX.y;
+        ball.vx = Math.cos(a) * 950; ball.vy = Math.sin(a) * 950 - 250;
+      }
+    }
+  }
+
   // флипперы
   cradled = false;
   for (const f of flippers) {
@@ -469,129 +492,255 @@ function step(dt) {
 }
 
 /* ---------- отрисовка ---------- */
-function roundGear(gx, gy, r, teeth, rot, alpha) {
+function metalStroke(pathFn, wOut, wIn, dark, light) {
+  cx.lineCap = 'round';
+  cx.strokeStyle = dark; cx.lineWidth = wOut;
+  cx.beginPath(); pathFn(); cx.stroke();
+  cx.strokeStyle = light; cx.lineWidth = wIn;
+  cx.beginPath(); pathFn(); cx.stroke();
+}
+
+function gearOutline(gx, gy, r, teeth, rot, color, lw, glow) {
   cx.save();
   cx.translate(gx, gy); cx.rotate(rot);
-  cx.globalAlpha = alpha;
-  cx.strokeStyle = COL.tealDim;
-  cx.lineWidth = 3;
+  cx.strokeStyle = color; cx.lineWidth = lw;
+  if (glow) { cx.shadowColor = color; cx.shadowBlur = glow; }
   cx.beginPath();
+  const step = Math.PI * 2 / teeth;
   for (let i = 0; i < teeth; i++) {
-    const a0 = (i / teeth) * Math.PI * 2, a1 = ((i + 0.5) / teeth) * Math.PI * 2;
-    const r1 = r, r2 = r * 0.86;
-    cx.arc(0, 0, r1, a0, a0 + Math.PI / teeth * 0.9);
-    cx.arc(0, 0, r2, a1, a1 + Math.PI / teeth * 0.9);
+    const a = i * step;
+    cx.arc(0, 0, r, a, a + step * 0.45);
+    cx.arc(0, 0, r * 1.18, a + step * 0.5, a + step * 0.95);
   }
+  cx.closePath(); cx.stroke();
+  cx.beginPath(); cx.arc(0, 0, r * 0.55, 0, Math.PI * 2); cx.stroke();
+  cx.restore();
+  cx.shadowBlur = 0;
+}
+
+function lamp(x, y, r, color, on) {
+  const g = cx.createRadialGradient(x, y, 0.5, x, y, r * (on ? 2.6 : 1.2));
+  g.addColorStop(0, on ? '#fff8e0' : '#2a2622');
+  g.addColorStop(0.45, on ? color : '#1d1a17');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  cx.fillStyle = g;
+  cx.beginPath(); cx.arc(x, y, r * (on ? 2.6 : 1.4), 0, Math.PI * 2); cx.fill();
+}
+
+function crossSpinner(x, y, r, rot, color) {
+  cx.save();
+  cx.translate(x, y); cx.rotate(rot);
+  cx.strokeStyle = color; cx.lineWidth = 4;
+  cx.shadowColor = color; cx.shadowBlur = 12;
+  cx.beginPath();
+  for (let i = 0; i < 4; i++) { cx.rotate(Math.PI / 2); cx.moveTo(0, 0); cx.lineTo(r, 0); }
   cx.stroke();
-  cx.beginPath(); cx.arc(0, 0, r * 0.35, 0, Math.PI * 2); cx.stroke();
+  cx.shadowBlur = 0;
+  cx.fillStyle = '#8b93a0';
+  cx.beginPath(); cx.arc(0, 0, 4.5, 0, Math.PI * 2); cx.fill();
   cx.restore();
 }
 
 function drawTable() {
   const t = performance.now() / 1000;
 
-  // фон: глубина + виньетка
-  const bg = cx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#0c181e');
-  bg.addColorStop(0.55, '#0a1418');
-  bg.addColorStop(1, '#060c10');
-  cx.fillStyle = bg;
+  // ЛАТУННЫЙ КОРПУС вокруг поля
+  const frame = cx.createLinearGradient(0, 0, W, H);
+  frame.addColorStop(0, '#4d3b28'); frame.addColorStop(0.5, '#7a5f3c'); frame.addColorStop(1, '#3c2e1f');
+  cx.fillStyle = frame;
   cx.fillRect(0, 0, W, H);
+  // заклёпки по периметру
+  cx.fillStyle = '#c8b48c';
+  for (let i = 0; i < 22; i++) {
+    const yy = 20 + i * 44;
+    cx.beginPath(); cx.arc(9, yy, 2.6, 0, Math.PI * 2); cx.arc(W - 9, yy, 2.6, 0, Math.PI * 2); cx.fill();
+  }
+  for (let i = 0; i < 12; i++) {
+    const xx = 24 + i * 45;
+    cx.beginPath(); cx.arc(xx, 8, 2.6, 0, Math.PI * 2); cx.arc(xx, H - 8, 2.6, 0, Math.PI * 2); cx.fill();
+  }
 
-  // вращающиеся шестерни Марни в глубине
-  roundGear(270, 470, 160, 14, t * 0.05, 0.10);
-  roundGear(120, 620, 70, 10, -t * 0.09, 0.08);
-  roundGear(415, 560, 55, 9, t * 0.12, 0.08);
+  // ПОЛЕ: тёмная сине-чёрная сталь с продольной шлифовкой
+  cx.save();
+  cx.beginPath(); cx.roundRect(16, 14, W - 32, H - 28, 14); cx.clip();
+  const bg = cx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#141d27'); bg.addColorStop(0.5, '#0e151d'); bg.addColorStop(1, '#080d13');
+  cx.fillStyle = bg; cx.fillRect(0, 0, W, H);
+  cx.globalAlpha = 0.05; cx.strokeStyle = '#8fb6cc'; cx.lineWidth = 1;
+  for (let x = 20; x < W - 20; x += 7) { cx.beginPath(); cx.moveTo(x, 14); cx.lineTo(x, H - 14); cx.stroke(); }
   cx.globalAlpha = 1;
 
-  // виньетка
-  const vg = cx.createRadialGradient(270, 430, 220, 270, 480, 620);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
-  cx.fillStyle = vg;
-  cx.fillRect(0, 0, W, H);
-
-  // борта: тёмная подложка + светящаяся кромка
-  cx.lineCap = 'round';
-  cx.strokeStyle = '#1c333d';
-  cx.lineWidth = 10;
-  cx.beginPath();
-  for (const [x1, y1, x2, y2] of walls) { cx.moveTo(x1, y1); cx.lineTo(x2, y2); }
-  cx.stroke();
-  cx.strokeStyle = COL.teal;
+  // разметка светящейся краской: круги вокруг вихря
+  cx.strokeStyle = 'rgba(126,231,135,0.10)';
   cx.lineWidth = 2;
-  cx.shadowColor = 'rgba(53,214,197,0.55)';
-  cx.shadowBlur = 8;
-  cx.beginPath();
-  for (const [x1, y1, x2, y2] of walls) { cx.moveTo(x1, y1); cx.lineTo(x2, y2); }
-  cx.stroke();
+  for (const rr of [95, 130, 170]) { cx.beginPath(); cx.arc(VORTEX.x, VORTEX.y, rr, 0, Math.PI * 2); cx.stroke(); }
+
+  // декор: зелёная полосатая рампа слева сверху
+  cx.save();
+  cx.translate(70, 318); cx.rotate(-0.62);
+  for (let i = 0; i < 6; i++) {
+    cx.fillStyle = i % 2 ? 'rgba(126,231,135,0.75)' : 'rgba(126,231,135,0.25)';
+    cx.shadowColor = '#7ee787'; cx.shadowBlur = i % 2 ? 8 : 0;
+    cx.fillRect(0, i * 13, 86, 7);
+  }
+  cx.restore(); cx.shadowBlur = 0;
+
+  // декор: барабан с четырьмя линзами (слева сверху)
+  cx.strokeStyle = '#6f7683'; cx.lineWidth = 5;
+  cx.beginPath(); cx.arc(118, 218, 46, 0, Math.PI * 2); cx.stroke();
+  cx.fillStyle = '#11181f';
+  cx.beginPath(); cx.arc(118, 218, 42, 0, Math.PI * 2); cx.fill();
+  for (let i = 0; i < 4; i++) {
+    const a = t * 0.4 + i * Math.PI / 2;
+    const lx = 118 + Math.cos(a) * 20, ly = 218 + Math.sin(a) * 20;
+    const lg = cx.createRadialGradient(lx, ly, 1, lx, ly, 12);
+    lg.addColorStop(0, '#d9cfa8'); lg.addColorStop(1, '#3a3527');
+    cx.fillStyle = lg;
+    cx.beginPath(); cx.arc(lx, ly, 12, 0, Math.PI * 2); cx.fill();
+  }
+
+  // декор: большая шестерня сверху по центру
+  gearOutline(270, 52, 40, 12, t * 0.15, '#9aa2ac', 4, 0);
+
+  // фиолетовые крестовины на левом серпантине
+  crossSpinner(74, 405, 26, t * 1.8, '#c17ef0');
+  crossSpinner(120, 645, 22, -t * 2.4, '#c17ef0');
+
+  // зелёные неоновые кольца слева
+  for (const [ry, rr] of [[688, 26]]) {
+    cx.strokeStyle = '#7ee787'; cx.lineWidth = 3;
+    cx.shadowColor = '#7ee787'; cx.shadowBlur = 10;
+    cx.beginPath(); cx.arc(58, ry, rr, 0, Math.PI * 2); cx.stroke();
+    cx.shadowBlur = 0;
+    cx.strokeStyle = '#6f7683'; cx.lineWidth = 2;
+    cx.beginPath(); cx.arc(58, ry, rr * 0.5, 0, Math.PI * 2); cx.stroke();
+  }
+
+  // тёплые лампы: дуга слева и колонка справа, мерцание
+  const lamps = [
+    [150, 470], [160, 520], [172, 568], [186, 614], [204, 658],
+    [430, 400], [430, 432], [430, 464], [430, 496],
+    [206, 700], [244, 720]
+  ];
+  lamps.forEach(([lx, ly], i) => lamp(lx, ly, 3.4, i % 3 ? '#f0a05a' : '#e2564a', Math.sin(t * 2.4 + i * 1.7) > -0.35));
+  // синие лампы прогресса — зажигаются от огней Марни
+  lanes.forEach((l, i) => lamp(330 + i * 26, 396, 3.6, '#6db4ff', l.lit));
+
+  // красные неоновые штрихи над слингами
+  cx.strokeStyle = '#e2564a'; cx.lineWidth = 3.5;
+  cx.shadowColor = '#e2564a'; cx.shadowBlur = 9;
+  cx.beginPath(); cx.moveTo(96, 700); cx.lineTo(128, 690); cx.moveTo(444, 700); cx.lineTo(412, 690); cx.stroke();
   cx.shadowBlur = 0;
 
-  // слингшоты: металлический клин с подсветкой при ударе
+  // ВОДОВОРОТ
+  {
+    VORTEX.spin += 0.02 + VORTEX.flash * 0.12;
+    const vx = VORTEX.x, vy = VORTEX.y;
+    const hole = cx.createRadialGradient(vx, vy, 4, vx, vy, VORTEX.r);
+    hole.addColorStop(0, '#000000'); hole.addColorStop(0.75, '#05070c'); hole.addColorStop(1, '#101822');
+    cx.fillStyle = hole;
+    cx.beginPath(); cx.arc(vx, vy, VORTEX.r, 0, Math.PI * 2); cx.fill();
+    // спирали
+    cx.strokeStyle = 'rgba(150,170,200,0.28)'; cx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) {
+      cx.beginPath();
+      for (let a = 0; a < Math.PI * 1.7; a += 0.2) {
+        const rr = 6 + a * (VORTEX.r - 12) / (Math.PI * 1.7);
+        const ang = a * 1.6 + VORTEX.spin + k * Math.PI * 2 / 3;
+        const px = vx + Math.cos(ang) * rr, py = vy + Math.sin(ang) * rr;
+        a === 0 ? cx.moveTo(px, py) : cx.lineTo(px, py);
+      }
+      cx.stroke();
+    }
+    // белое светящееся кольцо + красная полоса
+    cx.strokeStyle = VORTEX.flash > 0 ? '#fff2cf' : '#e8ecef';
+    cx.lineWidth = 5; cx.shadowColor = '#cfe0ea'; cx.shadowBlur = 14;
+    cx.beginPath(); cx.arc(vx, vy, VORTEX.r + 3, 0, Math.PI * 2); cx.stroke();
+    cx.shadowBlur = 0;
+    cx.strokeStyle = '#e2564a'; cx.lineWidth = 3;
+    cx.beginPath(); cx.arc(vx, vy, VORTEX.r - 7, VORTEX.spin, VORTEX.spin + Math.PI * 1.4); cx.stroke();
+    // четыре указателя
+    cx.fillStyle = '#d9dde2';
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 + Math.PI / 4;
+      const px = vx + Math.cos(a) * (VORTEX.r + 10), py = vy + Math.sin(a) * (VORTEX.r + 10);
+      cx.save(); cx.translate(px, py); cx.rotate(a + Math.PI / 2);
+      cx.beginPath(); cx.moveTo(-4, 0); cx.lineTo(4, 0); cx.lineTo(0, 7); cx.closePath(); cx.fill();
+      cx.restore();
+    }
+    VORTEX.flash = Math.max(0, VORTEX.flash - 0.03);
+  }
+
+  // БОРТА: металлические трубы
+  metalStroke(() => { for (const [x1, y1, x2, y2] of walls) { cx.moveTo(x1, y1); cx.lineTo(x2, y2); } }, 12, 5, '#3a3f46', '#9aa2ac');
+  // оранжевый неон вдоль правого борта
+  cx.strokeStyle = '#f0a05a'; cx.lineWidth = 2;
+  cx.shadowColor = '#f0a05a'; cx.shadowBlur = 8;
+  cx.beginPath(); cx.moveTo(458, 420); cx.lineTo(458, 760); cx.stroke();
+  cx.shadowBlur = 0;
+
+  // СЛИНГШОТЫ: тёмный металл с нарисованной пружиной
   for (const s of slings) {
     const g = cx.createLinearGradient(s.verts[0][0], s.verts[0][1], s.verts[2][0], s.verts[2][1]);
-    g.addColorStop(0, s.flash > 0 ? '#f0cc7a' : '#20404c');
-    g.addColorStop(1, s.flash > 0 ? COL.gold : '#12242c');
+    g.addColorStop(0, s.flash > 0 ? '#5a4a28' : '#252b33');
+    g.addColorStop(1, s.flash > 0 ? '#8a6b2f' : '#161b21');
     cx.fillStyle = g;
     cx.beginPath();
     cx.moveTo(...s.verts[0]); cx.lineTo(...s.verts[1]); cx.lineTo(...s.verts[2]);
     cx.closePath(); cx.fill();
-    cx.strokeStyle = s.flash > 0 ? COL.gold : COL.tealDim;
-    cx.lineWidth = 2.5; cx.stroke();
+    cx.strokeStyle = '#6f7683'; cx.lineWidth = 2.5; cx.stroke();
+    // пружина внутри
+    const [a0, , c0] = s.verts;
+    const mx = (a0[0] + c0[0]) / 2, my = (a0[1] + c0[1]) / 2;
+    const dirx = Math.sign(c0[0] - a0[0]);
+    cx.strokeStyle = s.flash > 0 ? '#ffe9b0' : '#d8c891';
+    cx.lineWidth = 2;
+    cx.shadowColor = '#ffe9b0'; cx.shadowBlur = s.flash > 0 ? 10 : 4;
+    cx.beginPath();
+    for (let i = 0; i <= 8; i++) {
+      const px = mx - dirx * 16 + dirx * i * 4, py = my + (i % 2 ? -6 : 6) + 8;
+      i === 0 ? cx.moveTo(px, py) : cx.lineTo(px, py);
+    }
+    cx.stroke(); cx.shadowBlur = 0;
     s.flash = Math.max(0, s.flash - 0.08);
   }
 
-  // бамперы: пульсирующее кольцо + металлическая шляпка
+  // БАМПЕРЫ: шестерни светящейся краской + металлическая шляпка-грибок
   for (const b of bumpers) {
-    const pulse = b.pin ? 0 : 2 + Math.sin(t * 3 + b.x) * 1.5;
-    const glow = cx.createRadialGradient(b.x, b.y, b.r * 0.4, b.x, b.y, b.r + 14 + pulse);
-    glow.addColorStop(0, b.flash > 0 ? 'rgba(255,240,200,0.9)' : 'rgba(53,214,197,0.35)');
-    glow.addColorStop(1, 'rgba(53,214,197,0)');
-    cx.fillStyle = glow;
-    cx.beginPath(); cx.arc(b.x, b.y, b.r + 14 + pulse, 0, Math.PI * 2); cx.fill();
-
-    const cap = cx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.35, 2, b.x, b.y, b.r);
-    cap.addColorStop(0, b.flash > 0 ? '#fff4d6' : '#2c5a64');
-    cap.addColorStop(0.7, b.flash > 0 ? COL.gold : '#123138');
-    cap.addColorStop(1, '#0b1e24');
+    gearOutline(b.x, b.y, b.r * 0.92, 10, t * 0.3, b.hue, 3, b.flash > 0 ? 22 : 9);
+    const cap = cx.createRadialGradient(b.x - 4, b.y - 4, 1, b.x, b.y, b.r * 0.5);
+    cap.addColorStop(0, b.flash > 0 ? '#fff4d6' : '#b9c1cc');
+    cap.addColorStop(1, b.flash > 0 ? '#d8a94e' : '#4a515c');
     cx.fillStyle = cap;
-    cx.beginPath(); cx.arc(b.x, b.y, b.r, 0, Math.PI * 2); cx.fill();
-    cx.strokeStyle = b.flash > 0 ? '#ffe9b0' : COL.teal;
-    cx.lineWidth = 2.5; cx.stroke();
-    cx.beginPath(); cx.arc(b.x, b.y, b.r * 0.55, 0, Math.PI * 2);
-    cx.strokeStyle = 'rgba(53,214,197,0.5)'; cx.lineWidth = 1.5; cx.stroke();
-    if (!b.pin) {
-      cx.fillStyle = b.flash > 0 ? '#14100a' : COL.text;
-      cx.font = 'bold 12px sans-serif'; cx.textAlign = 'center';
-      cx.fillText(String(b.pts), b.x, b.y + 4);
-    }
+    cx.beginPath(); cx.arc(b.x, b.y, b.r * 0.5, 0, Math.PI * 2); cx.fill();
+    cx.strokeStyle = '#2c313a'; cx.lineWidth = 2; cx.stroke();
     b.flash = Math.max(0, b.flash - 0.06);
   }
 
-  // банк целей: светодиодные пластины
+  // банк целей: латунные пластины
   for (const tg of targets) {
     cx.save();
     if (tg.up) {
       cx.shadowColor = 'rgba(216,169,78,0.8)'; cx.shadowBlur = 10;
       const g = cx.createLinearGradient(tg.x, tg.y, tg.x + tg.w, tg.y);
-      g.addColorStop(0, '#f2d488'); g.addColorStop(1, COL.gold);
+      g.addColorStop(0, '#f2d488'); g.addColorStop(1, '#c8963e');
       cx.fillStyle = g;
-    } else cx.fillStyle = '#152730';
+    } else cx.fillStyle = '#1a222b';
     cx.fillRect(tg.x, tg.y, tg.w, tg.h);
     cx.restore();
-    cx.strokeStyle = tg.up ? '#8a6b2f' : '#0e1c22';
+    cx.strokeStyle = tg.up ? '#8a6b2f' : '#101820';
     cx.lineWidth = 1.5;
     cx.strokeRect(tg.x, tg.y, tg.w, tg.h);
   }
 
-  // огни Марни: линзы
+  // огни Марни: линзы под куполом
   for (const l of lanes) {
     const lg = cx.createRadialGradient(l.x, l.y, 2, l.x, l.y, 16);
-    if (l.lit) { lg.addColorStop(0, '#d8fff8'); lg.addColorStop(0.5, COL.teal); lg.addColorStop(1, 'rgba(53,214,197,0.15)'); }
-    else { lg.addColorStop(0, '#1b3840'); lg.addColorStop(1, '#0f2026'); }
+    if (l.lit) { lg.addColorStop(0, '#eaf6ff'); lg.addColorStop(0.5, '#6db4ff'); lg.addColorStop(1, 'rgba(109,180,255,0.12)'); }
+    else { lg.addColorStop(0, '#232c36'); lg.addColorStop(1, '#131b23'); }
     cx.fillStyle = lg;
     cx.beginPath(); cx.arc(l.x, l.y, 14, 0, Math.PI * 2); cx.fill();
-    cx.strokeStyle = l.lit ? COL.teal : '#22434e';
+    cx.strokeStyle = l.lit ? '#6db4ff' : '#39434e';
     cx.lineWidth = 2; cx.stroke();
   }
 
@@ -599,28 +748,48 @@ function drawTable() {
   if (launching) {
     const comp = 54 * launchPower;
     const top = 838 + comp;
-    cx.strokeStyle = COL.danger;
+    cx.strokeStyle = '#ffd98a';
+    cx.shadowColor = '#ffd98a'; cx.shadowBlur = 8;
     cx.lineWidth = 3.2;
     cx.beginPath();
-    const coils = 7;
-    for (let i = 0; i <= coils * 2; i++) {
-      const yy = top + (896 - top) * i / (coils * 2);
+    for (let i = 0; i <= 14; i++) {
+      const yy = top + (896 - top) * i / 14;
       const xx = 493 + (i % 2 ? 11 : -11);
       i === 0 ? cx.moveTo(493, yy) : cx.lineTo(xx, yy);
     }
-    cx.stroke();
+    cx.stroke(); cx.shadowBlur = 0;
     cx.fillStyle = '#c9d6d3';
     cx.fillRect(480, top - 7, 26, 7);
   }
 
-  // флипперы: клин с втулкой
+  // эмблема между флипперами + вязь (собственный орнамент)
+  cx.save();
+  cx.translate(270, 905);
+  cx.strokeStyle = '#f5ecd2'; cx.lineWidth = 2.5;
+  cx.shadowColor = '#f5ecd2'; cx.shadowBlur = 12;
+  cx.beginPath();
+  cx.moveTo(-9, 10); cx.quadraticCurveTo(-11, -6, -5, -12);
+  cx.moveTo(9, 10); cx.quadraticCurveTo(11, -6, 5, -12);
+  cx.moveTo(-9, 10); cx.lineTo(9, 10);
+  cx.stroke();
+  cx.shadowBlur = 4;
+  cx.beginPath();
+  for (let i = 0; i < 24; i++) {
+    const px = -36 + i * 3;
+    const py = 24 + Math.sin(i * 1.9) * 2.4;
+    i === 0 ? cx.moveTo(px, py) : cx.lineTo(px, py);
+  }
+  cx.stroke();
+  cx.restore(); cx.shadowBlur = 0;
+
+  // ФЛИППЕРЫ: латунь
   for (const f of flippers) {
     const txp = f.px + Math.cos(f.ang) * f.len;
     const typ = f.py + Math.sin(f.ang) * f.len;
     const px = -Math.sin(f.ang), py = Math.cos(f.ang);
     const wBase = 11, wTip = 5;
     const grad = cx.createLinearGradient(f.px, f.py - 14, f.px, f.py + 14);
-    grad.addColorStop(0, '#f2d488'); grad.addColorStop(0.5, COL.gold); grad.addColorStop(1, '#7a5c26');
+    grad.addColorStop(0, '#f2d488'); grad.addColorStop(0.5, '#c8963e'); grad.addColorStop(1, '#6e5222');
     cx.fillStyle = grad;
     cx.beginPath();
     cx.moveTo(f.px + px * wBase, f.py + py * wBase);
@@ -629,8 +798,8 @@ function drawTable() {
     cx.lineTo(f.px - px * wBase, f.py - py * wBase);
     cx.arc(f.px, f.py, wBase, Math.atan2(-py, -px), Math.atan2(py, px));
     cx.closePath(); cx.fill();
-    cx.strokeStyle = '#5c451c'; cx.lineWidth = 1.5; cx.stroke();
-    cx.fillStyle = '#2a2013';
+    cx.strokeStyle = '#4a3817'; cx.lineWidth = 1.5; cx.stroke();
+    cx.fillStyle = '#8b93a0';
     cx.beginPath(); cx.arc(f.px, f.py, 5, 0, Math.PI * 2); cx.fill();
   }
 
@@ -639,24 +808,27 @@ function drawTable() {
     trail.push([ball.x, ball.y]);
     if (trail.length > 8) trail.shift();
     for (let i = 0; i < trail.length; i++) {
-      cx.globalAlpha = (i / trail.length) * 0.25;
-      cx.fillStyle = COL.teal;
+      cx.globalAlpha = (i / trail.length) * 0.3;
+      cx.fillStyle = '#c17ef0';
       cx.beginPath(); cx.arc(trail[i][0], trail[i][1], R * (0.4 + i / trail.length * 0.5), 0, Math.PI * 2); cx.fill();
     }
     cx.globalAlpha = 1;
   } else trail.length = 0;
 
-  // шар
+  // шар со свечением
   if (ball.alive) {
-    cx.fillStyle = 'rgba(0,0,0,0.4)';
-    cx.beginPath(); cx.ellipse(ball.x + 3, ball.y + 5, R * 0.9, R * 0.55, 0, 0, Math.PI * 2); cx.fill();
+    const halo = cx.createRadialGradient(ball.x, ball.y, R * 0.5, ball.x, ball.y, R * 2.4);
+    halo.addColorStop(0, 'rgba(193,126,240,0.5)');
+    halo.addColorStop(1, 'rgba(193,126,240,0)');
+    cx.fillStyle = halo;
+    cx.beginPath(); cx.arc(ball.x, ball.y, R * 2.4, 0, Math.PI * 2); cx.fill();
     const g = cx.createRadialGradient(ball.x - 4, ball.y - 4, 1.5, ball.x, ball.y, R);
     g.addColorStop(0, '#ffffff');
-    g.addColorStop(0.5, '#d9e6ea');
-    g.addColorStop(1, '#79929e');
+    g.addColorStop(0.5, '#e6dcf2');
+    g.addColorStop(1, '#8d7fa6');
     cx.fillStyle = g;
     cx.beginPath(); cx.arc(ball.x, ball.y, R, 0, Math.PI * 2); cx.fill();
-    cx.fillStyle = 'rgba(255,255,255,0.85)';
+    cx.fillStyle = 'rgba(255,255,255,0.9)';
     cx.beginPath(); cx.arc(ball.x - 3.5, ball.y - 3.5, 2.2, 0, Math.PI * 2); cx.fill();
   }
 
@@ -677,9 +849,10 @@ function drawTable() {
   if (tiltMeter > 0.2 && !tilt) {
     cx.fillStyle = COL.danger;
     cx.globalAlpha = Math.min(1, tiltMeter / 3);
-    cx.fillRect(20, 8, (W - 40) * Math.min(1, tiltMeter / 3), 4);
+    cx.fillRect(24, 20, (W - 48) * Math.min(1, tiltMeter / 3), 4);
     cx.globalAlpha = 1;
   }
+  cx.restore();
 }
 
 /* ---------- главный цикл ---------- */
